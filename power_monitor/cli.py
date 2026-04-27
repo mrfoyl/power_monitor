@@ -63,6 +63,25 @@ def _time_ago(dt: datetime | None) -> str:
     return f"{m}m ago"
 
 
+def _time_until(dt: datetime | None) -> str:
+    """Human-readable 'time until' for future datetimes."""
+    if dt is None:
+        return "unknown"
+    diff = dt - datetime.now(timezone.utc)
+    total_sec = int(diff.total_seconds())
+    if total_sec <= 0:
+        return "now / overdue"
+    h, rem = divmod(total_sec, 3600)
+    m = rem // 60
+    if h >= 24:
+        d = h // 24
+        h = h % 24
+        return f"in {d}d {h}h"
+    if h > 0:
+        return f"in {h}h {m}m"
+    return f"in {m}m"
+
+
 def _collect(providers: List[Type[BaseCollector]]) -> List[PowerOutage]:
     outages: List[PowerOutage] = []
     for Cls in providers:
@@ -218,6 +237,55 @@ def list_outages(provider_key: str) -> None:
             Text(o.status, style=status_color),
             str(o.num_affected),
             _time_ago(o.start_time),
+            (o.customer_message or "")[:60] or "-",
+        )
+
+    console.print(table)
+
+
+@cli.command(name="planned")
+@click.option(
+    "--provider", "provider_key", default="innlandet",
+    type=click.Choice(sorted(PROVIDER_MAP.keys()), case_sensitive=False),
+    help="Which provider(s) to query (default: innlandet).",
+    show_default=True,
+)
+def list_planned(provider_key: str) -> None:
+    """List upcoming scheduled outages (not yet started)."""
+    providers = PROVIDER_MAP[provider_key]
+    names = ", ".join(Cls().name for Cls in providers)
+    console.print(f"Fetching upcoming scheduled outages from: [bold]{names}[/bold] ...")
+
+    upcoming: List[PowerOutage] = []
+    for Cls in providers:
+        collector = Cls()
+        if not hasattr(collector, "fetch_upcoming"):
+            continue
+        try:
+            upcoming.extend(collector.fetch_upcoming())
+        except Exception as e:
+            console.print(f"[red]  [ERR] {collector.name}: {e}[/red]")
+
+    if not upcoming:
+        console.print("\n[green]OK  No upcoming scheduled outages.[/green]")
+        return
+
+    n = len(upcoming)
+    console.print(f"\n[bold yellow]!! {n} upcoming scheduled outage{'s' if n != 1 else ''}[/bold yellow]\n")
+
+    table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold")
+    table.add_column("Provider", style="cyan", no_wrap=True)
+    table.add_column("Municipality")
+    table.add_column("Affected", justify="right")
+    table.add_column("Starts")
+    table.add_column("Message")
+
+    for o in sorted(upcoming, key=lambda x: (x.start_time or datetime.max.replace(tzinfo=timezone.utc), x.municipality)):
+        table.add_row(
+            o.provider,
+            o.municipality or "-",
+            str(o.num_affected),
+            _time_until(o.start_time),
             (o.customer_message or "")[:60] or "-",
         )
 

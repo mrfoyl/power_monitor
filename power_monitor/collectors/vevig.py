@@ -29,6 +29,8 @@ Municipality matching:
 
 import json
 import logging
+import time
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import requests
@@ -127,6 +129,60 @@ class VevigCollector(BaseCollector):
                 ))
 
         return outages
+
+    def fetch_upcoming(self) -> List[PowerOutage]:
+        """
+        Returns future scheduled outages (uc — not yet started).
+        Timestamps matched to areas by customer count where possible.
+        """
+        try:
+            data = _get("GetApplicationData")
+        except requests.RequestException as e:
+            logger.warning("Vevig GetApplicationData failed: %s", e)
+            return []
+
+        p = data.get("scopes", {}).get("p", {})
+        areas = p.get("areas", [])
+        raw_outages = p.get("outages", [])
+        now_ms = int(time.time() * 1000)
+
+        cc_to_start: dict[int, int] = {}
+        for o in raw_outages:
+            st = o.get("starttime", 0)
+            ps = o.get("plannedstart", 0)
+            if ps and (st == 0 or st > now_ms):
+                cc = o.get("cc", 0)
+                if cc not in cc_to_start or ps < cc_to_start[cc]:
+                    cc_to_start[cc] = ps
+
+        upcoming: List[PowerOutage] = []
+        for area in areas:
+            label: str = area.get("label", "")
+            uc: int = area.get("uc", 0)
+            ucc: int = area.get("ucc", 0)
+
+            if uc == 0:
+                continue
+
+            municipality = _area_to_municipality(label)
+            planned_start_ms = cc_to_start.get(ucc)
+            start_dt = (
+                datetime.fromtimestamp(planned_start_ms / 1000, tz=timezone.utc)
+                if planned_start_ms else None
+            )
+
+            upcoming.append(PowerOutage(
+                provider=self.name,
+                event_id=f"{area.get('id')}_upcoming",
+                status="Planlagt",
+                outage_type="Utkobling",
+                municipality=municipality,
+                start_time=start_dt,
+                num_affected=ucc,
+                customer_message=f"{uc} scheduled outage(s) in {label}",
+            ))
+
+        return upcoming
 
     def fetch_summary(self) -> Optional[dict]:
         """

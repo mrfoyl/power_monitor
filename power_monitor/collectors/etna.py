@@ -7,23 +7,25 @@ https://avbruddskart.etna.no/scripts/main.js
 
 API: Custom "geoserver-api" platform (same as Vevig — not standard GeoServer).
 
-Primary endpoint: GetApplicationData
-  Returns a list of named service areas, each with current outage counts:
-    fc  = active fault (unplanned) count
-    fcc = customers affected by faults
-    pc  = active planned outage count
-    pcc = customers affected by planned outages
-    uc  = active unscheduled(?) count
-    ucc = customers affected
+Area-level fields returned by GetApplicationData:
+  fc  / fcc  — active unplanned fault count / customers affected (happening NOW)
+  pc  / pcc  — active planned outage count / customers affected (happening NOW)
+  uc  / ucc  — upcoming scheduled outage count / customers (NOT YET STARTED)
+
+The individual `outages` array in the same response carries per-outage timestamps
+(plannedstart, plannedend, starttime). starttime == 0 means the outage has not
+yet started; starttime > now means it is future. We match outages to areas by
+customer count (cc == ucc) to get per-area start times for upcoming outages.
 
 Note on Snertingdal:
-  Snertingdal is an area label used by Etna but is administratively part of
-  Gjøvik municipality. Reverse geocoding a GPS point in Snertingdal will
-  return "Gjøvik" as the municipality, so we map the area label accordingly.
+  Administratively part of Gjøvik municipality; Kartverket returns "Gjøvik"
+  for GPS points there, so we override the area label accordingly.
 """
 
 import json
 import logging
+import time
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import requests
@@ -40,8 +42,6 @@ _USER_AGENT = (
 )
 _TIMEOUT = 15
 
-# Etna uses "Snertingdal" as an area label, but Kartverket returns "Gjøvik"
-# for GPS points in that area.
 _AREA_OVERRIDES = {
     "snertingdal": "Gjøvik",
 }
@@ -55,17 +55,12 @@ def _get(path: str) -> dict:
     )
     resp.raise_for_status()
     data = resp.json()
-    # Same double-encoding as Vevig: the JSON body is itself a JSON string.
     if isinstance(data, str):
         data = json.loads(data)
     return data
 
 
 def _area_to_municipality(label: str) -> str:
-    """
-    Normalise area label to a municipality name.
-    Checks overrides first, then strips directional suffixes.
-    """
     key = label.strip().lower()
     if key in _AREA_OVERRIDES:
         return _AREA_OVERRIDES[key]
@@ -78,11 +73,18 @@ def _area_to_municipality(label: str) -> str:
     return name
 
 
+def _ms_to_dt(ms: int) -> Optional[datetime]:
+    if not ms:
+        return None
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+
+
 class EtnaCollector(BaseCollector):
     name = "Etna Nett"
     region = "Valdres / Land (Etnedal, Nord-Aurdal, Nordre Land, Søndre Land)"
 
     def fetch_outages(self) -> List[PowerOutage]:
+        """Returns currently active outages only (fc and pc — happening right now)."""
         try:
             data = _get("GetApplicationData")
         except requests.RequestException as e:
@@ -94,15 +96,13 @@ class EtnaCollector(BaseCollector):
 
         for area in areas:
             label: str = area.get("label", "")
-            fc: int = area.get("fc", 0)    # unplanned fault count
-            fcc: int = area.get("fcc", 0)  # unplanned customers
-            pc: int = area.get("pc", 0)    # planned outage count
-            pcc: int = area.get("pcc", 0)  # planned customers
-            uc: int = area.get("uc", 0)    # unscheduled count
-            ucc: int = area.get("ucc", 0)  # unscheduled customers
+            fc: int = area.get("fc", 0)
+            fcc: int = area.get("fcc", 0)
+            pc: int = area.get("pc", 0)
+            pcc: int = area.get("pcc", 0)
 
-            if fc == 0 and pc == 0 and uc == 0:
-                continue  # no active outages in this area
+            if fc == 0 and pc == 0:
+                continue
 
             municipality = _area_to_municipality(label)
 
@@ -128,28 +128,65 @@ class EtnaCollector(BaseCollector):
                     num_affected=pcc,
                     customer_message=f"{pc} planned outage(s) in {label}",
                 ))
-            if uc > 0:
-                outages.append(PowerOutage(
-                    provider=self.name,
-                    event_id=f"{area.get('id')}_unsch",
-                    status="Pågående",
-                    outage_type="Driftsforstyrrelse",
-                    municipality=municipality,
-                    start_time=None,
-                    num_affected=ucc,
-                    customer_message=f"{uc} unscheduled outage(s) in {label}",
-                ))
 
         return outages
 
-    def fetch_summary(self) -> Optional[dict]:
+    def fetch_upcoming(self) -> List[PowerOutage]:
         """
-        Returns aggregate counts across the whole network.
+        Returns future scheduled outages (uc — not yet started).
+        Timestamps are taken from the individual outages array and matched
+        to areas by customer count.
+        """
+        try:
+            data = _get("GetApplicationData")
+        except requests.RequestException as e:
+            logger.warning("Etna GetApplicationData failed: %s", e)
+            return []
 
-        Returns dict with keys: fault_count, fault_customers,
-                                plan_count, plan_customers
-        or None on error.
-        """
+        p = data.get("scopes", {}).get("p", {})
+        areas = p.get("areas", [])
+        raw_outages = p.get("outages", [])
+        now_ms = int(time.time() * 1000)
+
+        # Build a lookup: customer_count → earliest plannedstart (ms)
+        # for outages that have not yet started
+        cc_to_start: dict[int, int] = {}
+        for o in raw_outages:
+            st = o.get("starttime", 0)
+            ps = o.get("plannedstart", 0)
+            # Include if not yet started or start is in the future
+            if ps and (st == 0 or st > now_ms):
+                cc = o.get("cc", 0)
+                if cc not in cc_to_start or ps < cc_to_start[cc]:
+                    cc_to_start[cc] = ps
+
+        upcoming: List[PowerOutage] = []
+        for area in areas:
+            label: str = area.get("label", "")
+            uc: int = area.get("uc", 0)
+            ucc: int = area.get("ucc", 0)
+
+            if uc == 0:
+                continue
+
+            municipality = _area_to_municipality(label)
+            planned_start_ms = cc_to_start.get(ucc)
+            start_dt = _ms_to_dt(planned_start_ms) if planned_start_ms else None
+
+            upcoming.append(PowerOutage(
+                provider=self.name,
+                event_id=f"{area.get('id')}_upcoming",
+                status="Planlagt",
+                outage_type="Utkobling",
+                municipality=municipality,
+                start_time=start_dt,
+                num_affected=ucc,
+                customer_message=f"{uc} scheduled outage(s) in {label}",
+            ))
+
+        return upcoming
+
+    def fetch_summary(self) -> Optional[dict]:
         try:
             data = _get("content/outageTableData.json")
             summary = data.get("p", {}).get("summary", {})

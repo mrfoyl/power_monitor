@@ -63,6 +63,18 @@ python -m power_monitor list --provider arva
 python -m power_monitor list --provider all
 ```
 
+### List upcoming scheduled outages (not yet started)
+
+Some providers (Vevig, Etna Nett) publish future planned outages before they
+begin. Use `planned` to see these — they will not appear in `list` or trigger
+the PRTG integration since the power is not actually out yet.
+
+```
+python -m power_monitor planned
+python -m power_monitor planned --provider etna
+python -m power_monitor planned --provider all
+```
+
 ### Show provider status
 
 ```
