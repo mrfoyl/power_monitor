@@ -26,6 +26,7 @@ from .collectors.glitre import GlitreCollector
 from .collectors.arva import ArvaCollector
 from .collectors.vevig import VevigCollector
 from .collectors.etna import EtnaCollector
+from .collectors.griug import GriugCollector
 from .geocoding import lookup_postnummer, lookup_address
 from .models import PowerOutage
 
@@ -33,14 +34,15 @@ from .models import PowerOutage
 console = Console(highlight=False)
 
 # Providers ordered by relevance for Innlandet
-INNLANDET_PROVIDERS: List[Type[BaseCollector]] = [ElviaCollector, VevigCollector, EtnaCollector]
-ALL_PROVIDERS: List[Type[BaseCollector]] = [ElviaCollector, VevigCollector, EtnaCollector, GlitreCollector, ArvaCollector]
+INNLANDET_PROVIDERS: List[Type[BaseCollector]] = [ElviaCollector, VevigCollector, EtnaCollector, GriugCollector]
+ALL_PROVIDERS: List[Type[BaseCollector]] = [ElviaCollector, VevigCollector, EtnaCollector, GriugCollector, GlitreCollector, ArvaCollector]
 
 PROVIDER_MAP = {
     "innlandet": INNLANDET_PROVIDERS,
     "elvia":     [ElviaCollector],
     "vevig":     [VevigCollector],
     "etna":      [EtnaCollector],
+    "griug":     [GriugCollector],
     "glitre":    [GlitreCollector],
     "arva":      [ArvaCollector],
     "all":       ALL_PROVIDERS,

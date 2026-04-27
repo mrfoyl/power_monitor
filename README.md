@@ -11,6 +11,7 @@ to find out if a reported power outage in the area is the likely cause.
 | **Elvia** | Innlandet, Oslo, Akershus, Østfold | ArcGIS Online FeatureServer (public) |
 | **Vevig** | Nord-Fron, Sør-Fron, Ringebu, Skjåk, Øyer | Custom geoserver-api (public) |
 | **Etna Nett** | Etnedal, Nord-Aurdal, Nordre Land, Søndre Land | Custom geoserver-api (public) |
+| **Griug** | Numedal / Hallingdal (Nore og Uvdal, Rollag, Nes) | Quant Insight / Embriq REST (public) |
 | Glitre Nett | Numedal, Drammen, Kongsberg | ArcGIS on-prem MapServer (public) |
 | Arva (Tromskraft) | Tromsø / Troms | ArcGIS on-prem FeatureServer (public) |
 
@@ -58,6 +59,7 @@ python -m power_monitor list
 python -m power_monitor list --provider elvia
 python -m power_monitor list --provider vevig
 python -m power_monitor list --provider etna
+python -m power_monitor list --provider griug
 python -m power_monitor list --provider glitre
 python -m power_monitor list --provider arva
 python -m power_monitor list --provider all
@@ -99,6 +101,7 @@ power_monitor/
         elvia.py        Elvia (ArcGIS Online)
         vevig.py        Vevig (custom geoserver-api)
         etna.py         Etna Nett (custom geoserver-api)
+        griug.py        Griug (Quant Insight / Embriq REST API)
         glitre.py       Glitre Nett (ArcGIS on-prem)
         arva.py         Arva / Tromskraft (ArcGIS on-prem)
     geocoding.py        Kartverket address / postnr / GPS lookup
