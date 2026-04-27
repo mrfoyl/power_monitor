@@ -198,6 +198,34 @@ To set this up:
 All three runs write to the same log file with timestamps, giving you a
 full timeline of what was checked and when.
 
+### Step 6 — Show the result in alert notifications
+
+PRTG captures the script's stdout and makes it available as `%scriptresult`
+in any notification template. Add it to your existing email or Teams
+notification message body — no API integration required.
+
+Example message template:
+
+```
+Sensor %name on %device is %status.
+Down for: %down
+Message: %message
+
+--- Power Outage Check ---
+%scriptresult
+```
+
+To edit a notification template:
+
+1. Go to **Setup** -> **Account Settings** -> **Notifications**
+2. Open your existing email / Teams notification
+3. Find the **Message** or **Subject** body field
+4. Add `%scriptresult` where you want the outage result to appear
+5. Click **Save**
+
+The script only runs when triggered by a Down sensor — there is no
+periodic polling.
+
 ### What the output looks like
 
 When an outage is found:
