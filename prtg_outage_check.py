@@ -104,11 +104,12 @@ if not OUTAGE_API_URL:
     try:
         from power_monitor.collectors.elvia import ElviaCollector
         from power_monitor.collectors.vevig import VevigCollector
+        from power_monitor.collectors.etna import EtnaCollector
         from power_monitor.collectors.glitre import GlitreCollector
         from power_monitor.collectors.arva import ArvaCollector
         from power_monitor.geocoding import lookup_gps
         from power_monitor.models import PowerOutage
-        _LOCAL_PROVIDERS = [ElviaCollector, VevigCollector, GlitreCollector, ArvaCollector]
+        _LOCAL_PROVIDERS = [ElviaCollector, VevigCollector, EtnaCollector, GlitreCollector, ArvaCollector]
     except ImportError as e:
         print(f"ERROR: Could not import power_monitor: {e}")
         print("Set OUTAGE_API_URL to use remote mode, or install power_monitor locally.")

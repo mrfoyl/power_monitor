@@ -45,6 +45,7 @@ from flask import Flask, request, jsonify, Response
 
 from power_monitor.collectors.elvia import ElviaCollector
 from power_monitor.collectors.vevig import VevigCollector
+from power_monitor.collectors.etna import EtnaCollector
 from power_monitor.collectors.glitre import GlitreCollector
 from power_monitor.collectors.arva import ArvaCollector
 from power_monitor.geocoding import lookup_gps
@@ -58,7 +59,7 @@ HOST    = os.environ.get("POWER_MONITOR_HOST", "0.0.0.0")
 PORT    = int(os.environ.get("POWER_MONITOR_PORT", 5000))
 API_KEY = os.environ.get("POWER_MONITOR_API_KEY", "")  # empty = no auth
 
-PROVIDERS = [ElviaCollector, VevigCollector, GlitreCollector, ArvaCollector]
+PROVIDERS = [ElviaCollector, VevigCollector, EtnaCollector, GlitreCollector, ArvaCollector]
 
 # ---------------------------------------------------------------------------
 
