@@ -173,6 +173,31 @@ You can assign it at group level so it fires for any sensor underneath:
    - **Perform:** Execute notification -> `Power Outage Check`
 5. Click **Save**
 
+### Step 5 — Add repeat triggers to handle delayed outage reporting
+
+Utilities typically publish outages a few minutes after they occur. The
+script only runs once per trigger, so add escalation triggers that re-run
+the check at 10 and 30 minutes — that way a delayed report is still caught.
+
+In the same **Notifications** tab on the group, add two more triggers:
+
+| Trigger type | Condition | Action |
+|---|---|---|
+| State trigger | Still Down after **10 minutes** | Execute `Power Outage Check` |
+| State trigger | Still Down after **30 minutes** | Execute `Power Outage Check` |
+
+To set this up:
+
+1. Click **Add State Trigger** again
+2. Set:
+   - **When sensor is:** Down for at least **10** minutes
+   - **Perform:** Execute notification -> `Power Outage Check`
+3. Repeat for 30 minutes
+4. Click **Save**
+
+All three runs write to the same log file with timestamps, giving you a
+full timeline of what was checked and when.
+
 ### What the output looks like
 
 When an outage is found:
