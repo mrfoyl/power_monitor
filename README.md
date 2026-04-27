@@ -100,25 +100,105 @@ requirements.txt
 When a PRTG sensor goes Down, `prtg_outage_check.py` is triggered as an
 EXE/Script notification. It reverse-geocodes the PRTG group's GPS location
 to a municipality, queries the outage APIs, and outputs a plain-text result
-that PRTG includes in the alert notification.
+that PRTG exposes as `%scriptresult` in notification templates.
 
-### Prerequisites
+### Deployment modes
 
-- Python 3.11+ installed on the PRTG server and available on `PATH`
-- The `power_monitor` project accessible from the PRTG server
-  (either copied locally or on a shared drive)
-- `pip install -r requirements.txt` run on the PRTG server
+**Remote mode (recommended)**
+Run `server.py` on any central server. The PRTG script calls it over HTTP —
+the PRTG server only needs Python and `requests`, nothing else.
+
+```
+[PRTG server]  prtg_outage_check.py  -->  HTTP GET  -->  [API server]  server.py
+                  (tiny, no deps)                           (full power_monitor)
+```
+
+**Local mode**
+Run the check directly on the PRTG server. Requires Python 3.11+ and the
+full `power_monitor` package installed on the PRTG server.
+
+---
+
+### Running the API server
+
+On the server that will run the outage checks:
+
+```
+pip install -r requirements.txt
+python server.py
+```
+
+The server binds to `0.0.0.0:5000` by default. Test it:
+
+```
+curl http://<server-ip>:5000/health
+curl "http://<server-ip>:5000/check?lat=61.5120&lon=9.1234"
+```
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `POWER_MONITOR_HOST` | `0.0.0.0` | Bind address |
+| `POWER_MONITOR_PORT` | `5000` | Port |
+| `POWER_MONITOR_API_KEY` | _(none)_ | Optional API key (recommended) |
+
+**Optional API key** — set on the server:
+```
+set POWER_MONITOR_API_KEY=your-secret-key
+python server.py
+```
+
+Then set the matching key in `prtg_outage_check.py`:
+```python
+OUTAGE_API_KEY = "your-secret-key"
+```
+
+**Running as a service (Windows):**
+```
+pip install pywin32
+python -m pywin32_postinstall -install
+# then use NSSM or Task Scheduler to run server.py on startup
+```
+
+**Running as a service (Linux):**
+See the systemd example at the bottom of this section.
+
+---
+
+### Prerequisites (PRTG server — remote mode)
+
+- Python 3.x (any version)
+- `pip install requests`
+
+### Prerequisites (PRTG server — local mode)
+
+- Python 3.11+
+- `pip install -r requirements.txt`
+- The full `power_monitor/` folder copied to the EXE directory
+
+---
 
 ### Step 1 — Copy the script to PRTG
 
-Copy `prtg_outage_check.py` **and** the entire `power_monitor/` folder to
-PRTG's EXE notification directory:
+**Remote mode:** copy only `prtg_outage_check.py` to the EXE directory.
+
+**Local mode:** copy `prtg_outage_check.py` **and** the entire `power_monitor/` folder.
+
+Target directory:
 
 ```
 C:\Program Files (x86)\PRTG Network Monitor\Notifications\EXE\
 ```
 
-The directory should look like:
+**Remote mode** — the directory should look like:
+
+```
+Notifications\EXE\
+    prtg_outage_check.py
+```
+
+**Local mode** — the directory should look like:
 
 ```
 Notifications\EXE\

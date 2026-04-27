@@ -5,24 +5,38 @@ PRTG EXE/Script Notification — Power Outage Correlation
 
 When a PRTG sensor goes Down this script:
   1. Parses the GPS location from the PRTG group's Location field
-  2. Reverse-geocodes it to a Norwegian municipality (Kartverket API)
-  3. Queries the configured power outage providers for that municipality
-  4. Prints a plain-text result that PRTG includes in the alert notification
-  5. Writes an entry to a rolling log file for audit purposes
+  2. Either calls a remote Power Monitor API server (recommended) OR
+     runs the outage check locally (requires power_monitor installed)
+  3. Prints a plain-text result — PRTG exposes this as %scriptresult in
+     notification templates (email, Teams, etc.)
+  4. Writes an entry to a rolling log file for audit purposes
 
-Exit codes (used by PRTG to set the notification result text):
+Exit codes:
   0  — completed without errors (outage found OR not found — both are OK)
-  1  — fatal error (bad arguments, geocoding failed, all providers failed)
+  1  — fatal error (bad arguments, geocoding failed, server unreachable)
+
+REMOTE MODE (recommended)
+--------------------------
+Run server.py on a central server, then set OUTAGE_API_URL below to point
+at it. The PRTG script needs no Python dependencies except `requests`.
+
+  OUTAGE_API_URL = "http://192.168.1.50:5000"
+
+The PRTG server only needs:
+  - Python 3.x  (any version, just for this script)
+  - pip install requests
+
+LOCAL MODE
+----------
+Leave OUTAGE_API_URL = "" to run the check directly on the PRTG server.
+Requires Python 3.11+ and the full power_monitor package installed.
 
 HOW TO INSTALL
 --------------
 1. Copy this file to PRTG's EXE notification directory:
      C:\\Program Files (x86)\\PRTG Network Monitor\\Notifications\\EXE\\
 
-2. Make sure Python 3.11+ is installed on the PRTG server and on PATH,
-   and that the power_monitor package (this project) is importable.
-   Easiest: pip install -e <path-to-power_monitor> on the PRTG server,
-   OR copy the entire power_monitor/ folder next to this script.
+2. Set OUTAGE_API_URL below (remote mode) or install power_monitor (local).
 
 3. Create a notification in PRTG (see README.md for full walkthrough):
      Setup -> Account Settings -> Notifications -> Add Notification
@@ -32,68 +46,77 @@ HOW TO INSTALL
        --device "%device" --group "%group" --sensor "%name" ^
        --status "%status" --location "%location" --down "%down"
 
-4. Assign the notification as a trigger on any sensor or group:
-     Sensor -> Notifications tab -> Add State Trigger
-     When: Down  ->  Execute: <your notification>
+4. Add the notification to a trigger on your site groups:
+     Group -> Notifications -> Add State Trigger
+     When: Down  ->  Execute: Power Outage Check
+
+5. Add %scriptresult to your alert notification message template.
 
 PRTG LOCATION FIELD FORMAT
 ---------------------------
-Set the Location field on each PRTG group/device to the site's GPS
-coordinates in one of these formats (all are accepted):
-  "61.5120, 9.1234"
+Set the Location field on each PRTG group to GPS coordinates:
+  "61.5120, 9.1234"        decimal degrees (preferred)
   "61.5120,9.1234"
-  "61.5120° N, 9.1234° E"   (copy-paste from Google Maps is fine)
+  "61.5120° N, 9.1234° E"  copy-paste from Google Maps is fine
 
-To set it: Group -> Edit -> Location tab -> enter coordinates.
+Group -> Edit -> Settings -> Location field.
 """
 
 import argparse
 import logging
-import os
 import re
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Allow running from PRTG's EXE directory even if power_monitor is not
-# installed as a package — add this script's directory and its parent to path.
-# ---------------------------------------------------------------------------
-_HERE = Path(__file__).resolve().parent
-for _candidate in (_HERE, _HERE.parent):
-    if (_candidate / "power_monitor").is_dir():
-        if str(_candidate) not in sys.path:
-            sys.path.insert(0, str(_candidate))
-        break
-
-try:
-    from power_monitor.collectors.elvia import ElviaCollector
-    from power_monitor.collectors.vevig import VevigCollector
-    from power_monitor.collectors.glitre import GlitreCollector
-    from power_monitor.collectors.arva import ArvaCollector
-    from power_monitor.geocoding import lookup_gps
-    from power_monitor.models import PowerOutage
-except ImportError as e:
-    print(f"ERROR: Could not import power_monitor: {e}")
-    print("Make sure power_monitor/ is next to this script or installed via pip.")
-    sys.exit(1)
+import requests as _requests
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration — edit these values
 # ---------------------------------------------------------------------------
 
-# Log file location — change if needed. Set to None to disable file logging.
-LOG_FILE = Path(_HERE) / "prtg_outage_check.log"
+# URL of the Power Monitor API server (server.py).
+# Set to "" to run the check locally instead.
+OUTAGE_API_URL = ""   # e.g. "http://192.168.1.50:5000"
 
-# Max log file size before rotation (bytes)
+# API key — must match POWER_MONITOR_API_KEY on the server.
+# Leave empty if the server has no API key configured.
+OUTAGE_API_KEY = ""
+
+# Log file next to this script. Set to None to disable.
+LOG_FILE = Path(__file__).resolve().parent / "prtg_outage_check.log"
 LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 
-# Providers to query, in priority order.
-# All providers are queried; results are filtered by municipality.
-PROVIDERS = [ElviaCollector, VevigCollector, GlitreCollector, ArvaCollector]
+# Timeout for remote API calls (seconds)
+REQUEST_TIMEOUT = 20
 
 # ---------------------------------------------------------------------------
-# Logging setup
+# Local mode imports (only needed when OUTAGE_API_URL is empty)
+# ---------------------------------------------------------------------------
+
+if not OUTAGE_API_URL:
+    _HERE = Path(__file__).resolve().parent
+    for _candidate in (_HERE, _HERE.parent):
+        if (_candidate / "power_monitor").is_dir():
+            if str(_candidate) not in sys.path:
+                sys.path.insert(0, str(_candidate))
+            break
+
+    try:
+        from power_monitor.collectors.elvia import ElviaCollector
+        from power_monitor.collectors.vevig import VevigCollector
+        from power_monitor.collectors.glitre import GlitreCollector
+        from power_monitor.collectors.arva import ArvaCollector
+        from power_monitor.geocoding import lookup_gps
+        from power_monitor.models import PowerOutage
+        _LOCAL_PROVIDERS = [ElviaCollector, VevigCollector, GlitreCollector, ArvaCollector]
+    except ImportError as e:
+        print(f"ERROR: Could not import power_monitor: {e}")
+        print("Set OUTAGE_API_URL to use remote mode, or install power_monitor locally.")
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Logging
 # ---------------------------------------------------------------------------
 
 def _setup_logging() -> logging.Logger:
@@ -101,26 +124,21 @@ def _setup_logging() -> logging.Logger:
     log.setLevel(logging.DEBUG)
     fmt = logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
-
-    # Console handler (captured by PRTG as script output)
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.INFO)
     ch.setFormatter(fmt)
     log.addHandler(ch)
 
-    # File handler (rolling log for audit)
     if LOG_FILE:
         try:
             if LOG_FILE.exists() and LOG_FILE.stat().st_size > LOG_MAX_BYTES:
-                backup = LOG_FILE.with_suffix(".log.1")
-                LOG_FILE.rename(backup)
+                LOG_FILE.rename(LOG_FILE.with_suffix(".log.1"))
             fh = logging.FileHandler(LOG_FILE, encoding="utf-8")
             fh.setLevel(logging.DEBUG)
             fh.setFormatter(fmt)
             log.addHandler(fh)
         except OSError:
-            pass  # Don't crash if we can't write the log
-
+            pass
     return log
 
 
@@ -132,22 +150,10 @@ log = _setup_logging()
 # ---------------------------------------------------------------------------
 
 def parse_location(location_str: str) -> tuple[float, float] | None:
-    """
-    Parse latitude and longitude from a freeform location string.
-
-    Accepts:
-      "61.5120, 9.1234"
-      "61.5120,9.1234"
-      "61.5120° N, 9.1234° E"
-      "61° 30' 43\" N, 9° 7' 24\" E"   (DMS — approximated)
-    Returns (lat, lon) or None if unparseable.
-    """
-    # Extract all decimal numbers (handles degree symbols, N/S/E/W labels)
     nums = re.findall(r"-?\d+(?:\.\d+)?", location_str)
     if len(nums) >= 2:
         try:
             lat, lon = float(nums[0]), float(nums[1])
-            # Sanity check for Norway
             if 57.0 <= lat <= 72.0 and 4.0 <= lon <= 32.0:
                 return lat, lon
         except ValueError:
@@ -156,51 +162,65 @@ def parse_location(location_str: str) -> tuple[float, float] | None:
 
 
 # ---------------------------------------------------------------------------
-# Main logic
+# Remote mode
 # ---------------------------------------------------------------------------
 
-def check_outages_for_location(
-    lat: float, lon: float
-) -> tuple[list[PowerOutage], str, dict] | None:
-    """
-    Returns (outages, municipality, location_info) or None if geocoding fails.
-    """
+def _check_remote(
+    lat: float, lon: float,
+    device: str, group: str, sensor: str, status: str, down: str,
+) -> str:
+    """Call the Power Monitor API server and return the plain-text result."""
+    params = {
+        "lat":    lat,
+        "lon":    lon,
+        "device": device,
+        "group":  group,
+        "sensor": sensor,
+        "status": status,
+        "down":   down,
+        "format": "text",
+    }
+    headers = {}
+    if OUTAGE_API_KEY:
+        headers["X-API-Key"] = OUTAGE_API_KEY
+
+    url = f"{OUTAGE_API_URL.rstrip('/')}/check"
+    log.info("Calling remote API: %s", url)
+    resp = _requests.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp.text
+
+
+# ---------------------------------------------------------------------------
+# Local mode
+# ---------------------------------------------------------------------------
+
+def _check_local(
+    lat: float, lon: float,
+    device: str, group: str, sensor: str, status: str, down: str,
+) -> str:
+    """Run the outage check in-process (no remote server needed)."""
     location = lookup_gps(lat, lon)
     if not location:
-        log.error("Reverse geocoding failed for %.5f, %.5f — no address found", lat, lon)
-        return None
+        raise RuntimeError(f"Geocoding failed for {lat:.5f}, {lon:.5f}")
 
     municipality = location["municipality"]
-    county = location.get("county", "")
-    log.info("GPS %.5f, %.5f -> %s (%s)", lat, lon, municipality, county)
+    log.info("GPS %.5f, %.5f -> %s (%s)", lat, lon, municipality, location.get("county", ""))
 
-    outages: list[PowerOutage] = []
-    for Cls in PROVIDERS:
+    outages = []
+    for Cls in _LOCAL_PROVIDERS:
         collector = Cls()
         try:
             found = collector.fetch_outages()
-            matching = [
+            outages.extend(
                 o for o in found
                 if o.municipality.upper() == municipality.upper()
-            ]
-            outages.extend(matching)
+            )
         except NotImplementedError:
             pass
         except Exception as e:
             log.warning("Provider %s failed: %s", collector.name, e)
 
-    return outages, municipality, location
-
-
-def _format_result(
-    outages: list[PowerOutage],
-    municipality: str,
-    device: str,
-    group: str,
-    sensor: str,
-    status: str,
-    down: str,
-) -> str:
     header = (
         f"Device : {device}\n"
         f"Group  : {group}\n"
@@ -209,20 +229,15 @@ def _format_result(
         f"Area   : {municipality}\n"
         f"{'-' * 60}\n"
     )
-
     if not outages:
         return (
             header
             + "RESULT : No active power outages detected in this area.\n"
             + "         Investigate other causes (hardware, connectivity, config).\n"
         )
-
-    lines = [header, f"RESULT : {len(outages)} active power outage(s) found — likely cause!\n"]
+    lines = [header, f"RESULT : {len(outages)} active power outage(s) found -- likely cause!\n"]
     for o in outages:
-        lines.append(
-            f"  [{o.provider}] {o.outage_type} | "
-            f"{o.num_affected} customers affected"
-        )
+        lines.append(f"  [{o.provider}] {o.outage_type} | {o.num_affected} customers affected")
         if o.customer_message:
             lines.append(f"    {o.customer_message}")
     return "\n".join(lines) + "\n"
@@ -233,26 +248,24 @@ def _format_result(
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="PRTG power outage correlation check"
-    )
-    parser.add_argument("--device",   default="(unknown)", help="%%device")
-    parser.add_argument("--group",    default="(unknown)", help="%%group")
-    parser.add_argument("--sensor",   default="(unknown)", help="%%name")
-    parser.add_argument("--status",   default="Down",      help="%%status")
-    parser.add_argument("--location", default="",          help="%%location (lat,lon)")
-    parser.add_argument("--down",     default="",          help="%%down")
-    # Allow explicit lat/lon override (some PRTG versions expose these directly)
+    parser = argparse.ArgumentParser(description="PRTG power outage correlation check")
+    parser.add_argument("--device",   default="(unknown)")
+    parser.add_argument("--group",    default="(unknown)")
+    parser.add_argument("--sensor",   default="(unknown)")
+    parser.add_argument("--status",   default="Down")
+    parser.add_argument("--location", default="")
+    parser.add_argument("--down",     default="")
     parser.add_argument("--lat",  type=float, default=None)
     parser.add_argument("--lon",  type=float, default=None)
     args = parser.parse_args()
 
+    mode = "remote" if OUTAGE_API_URL else "local"
     log.info(
-        "=== PRTG outage check | device=%r group=%r status=%s ===",
-        args.device, args.group, args.status,
+        "=== PRTG outage check [%s] | device=%r group=%r status=%s ===",
+        mode, args.device, args.group, args.status,
     )
 
-    # Resolve GPS coordinates
+    # Resolve GPS
     if args.lat is not None and args.lon is not None:
         coords = (args.lat, args.lon)
     elif args.location:
@@ -271,25 +284,23 @@ def main() -> int:
         return 1
 
     lat, lon = coords
-    log.info("Parsed coordinates: lat=%.5f lon=%.5f", lat, lon)
+    log.info("Coordinates: lat=%.5f lon=%.5f", lat, lon)
 
-    result = check_outages_for_location(lat, lon)
-    if result is None:
+    try:
+        if OUTAGE_API_URL:
+            output = _check_remote(lat, lon, args.device, args.group,
+                                   args.sensor, args.status, args.down)
+        else:
+            output = _check_local(lat, lon, args.device, args.group,
+                                  args.sensor, args.status, args.down)
+    except Exception as e:
+        msg = f"ERROR: {e}"
+        log.error(msg)
+        print(msg)
         return 1
 
-    outages, municipality, _location = result
-
-    output = _format_result(
-        outages, municipality,
-        args.device, args.group, args.sensor, args.status, args.down,
-    )
-
     print(output)
-    log.info(
-        "Result: %d outage(s) found in %s",
-        len(outages), municipality,
-    )
-
+    log.info("Done")
     return 0
 
 
