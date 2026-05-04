@@ -116,7 +116,29 @@ power_monitor/
     cli.py              Click CLI commands
 prtg_outage_check.py    PRTG EXE notification script (see below)
 requirements.txt
+docs/
+    design.md           System design with Mermaid diagrams
 ```
+
+---
+
+## Design documentation
+
+`docs/design.md` contains Mermaid flow diagrams covering system architecture,
+deployment topology, provider overview, and PRTG configuration summary.
+
+Mermaid is not standard Markdown — a renderer with Mermaid support is required:
+
+**VS Code (recommended)**
+1. Install [Markdown Preview Mermaid Support](https://marketplace.visualstudio.com/items?itemName=bierner.markdown-mermaid)
+2. Open `docs/design.md` and press `Ctrl+Shift+V`
+
+**GitHub**
+The file renders correctly on GitHub — Mermaid has been supported natively since 2022.
+
+**Export to PDF**
+1. Install [Markdown PDF](https://marketplace.visualstudio.com/items?itemName=yzane.markdown-pdf) in VS Code
+2. Open `docs/design.md`, right-click → **Markdown PDF: Export (pdf)**
 
 ---
 
