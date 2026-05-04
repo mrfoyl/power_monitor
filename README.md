@@ -120,6 +120,63 @@ requirements.txt
 
 ---
 
+## Input handling and security
+
+All external data — from utility APIs, Kartverket, and PRTG — is treated as
+untrusted. The measures below are defence in depth against compromised or
+misbehaving upstream sources.
+
+### Data from provider APIs
+
+Every outage record passes through `models.py:PowerOutage.__post_init__`
+regardless of which provider produced it:
+
+| Field | Measure |
+|---|---|
+| `num_affected` | Clamped to `0–100 000`. Handles `None`, negative values, and unrealistic counts from a misbehaving API. |
+| `customer_message` | Truncated to 500 characters. |
+| `municipality` | Truncated to 100 characters. |
+
+Additional per-collector protections:
+
+- **ArcGIS collectors (Elvia, Glitre, Arva):** `if "error" in data` check on
+  API responses; deduplication across endpoints; `None` returned for records
+  missing a required ID field; `.strip()` on all string fields.
+- **Vevig / Etna Nett:** `_safe_int()` helper used in `fetch_summary()` —
+  returns `0` on `TypeError`/`ValueError` instead of raising.
+- **Griug:** `try/except` around polygon centroid calculation; graceful `None`
+  return when geocoding fails.
+- **All collectors:** 15-second request timeout; `raise_for_status()` on HTTP
+  responses; `try/except requests.RequestException` around every network call.
+
+### PRTG notification script (`prtg_outage_check.py`)
+
+| Input | Measure |
+|---|---|
+| GPS coordinates (from PRTG Location field) | Validated against Norwegian coordinate bounds: 57–72 °N, 4–32 °E. Script exits with code 1 if coordinates are absent or out of range. |
+| `device`, `group`, `sensor` (from PRTG) | Truncated to 200 characters before being written to output or log. |
+| `status`, `down` (from PRTG) | Truncated to 50 characters. |
+| `customer_message`, `municipality` (from provider APIs) | `html.escape()` applied before embedding in notification text. PRTG inserts `%scriptresult` into HTML email and Teams templates — without escaping, a compromised API could inject links or markup into alerts. |
+
+### API server (`server.py`)
+
+| Measure | Detail |
+|---|---|
+| `lat` / `lon` validation | Parsed as `float` with `try/except`; returns HTTP 400 on missing or non-numeric values. |
+| PRTG context fields | Truncated to 200 / 50 characters via `_trunc()`. |
+| `customer_message`, `municipality` in text output | `html.escape()` applied (same reason as above). |
+| Rate limiting | `/check` limited to **30 requests per minute per IP** (flask-limiter, in-memory). Each check fans out to 6 provider calls + a Kartverket geocoding request. |
+| Optional API key | Set `POWER_MONITOR_API_KEY` on the server; all `/check` requests must then include `X-API-Key: <key>`. Recommended when the server is reachable outside a trusted LAN. |
+
+### What is not in scope
+
+- **SQL injection** — there is no database. No SQL is used anywhere.
+- **Code execution from input** — `eval`, `exec`, `subprocess`, and
+  `shell=True` are not used. JSON is parsed with `json.loads` / `resp.json()`,
+  not `eval`. Arguments are parsed with `argparse`.
+
+---
+
 ## PRTG integration
 
 When a PRTG sensor goes Down, `prtg_outage_check.py` is triggered as an
