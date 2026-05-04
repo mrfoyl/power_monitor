@@ -42,6 +42,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from flask import Flask, request, jsonify, Response
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from power_monitor.collectors.elvia import ElviaCollector
 from power_monitor.collectors.vevig import VevigCollector
@@ -72,6 +74,19 @@ logging.basicConfig(
 log = logging.getLogger("power_monitor.server")
 
 app = Flask(__name__)
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],        # no blanket limit; applied per-route
+    storage_uri="memory://",  # in-process store; switch to redis:// for multi-worker
+)
+
+_MAX_PARAM = 200   # max length for PRTG context strings passed as query params
+
+
+def _trunc(s: str, n: int = _MAX_PARAM) -> str:
+    return s[:n] if s else s
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +176,7 @@ def health():
 
 
 @app.get("/check")
+@limiter.limit("30 per minute")
 def check():
     if not _authorized():
         return Response("Unauthorized", status=401)
@@ -172,12 +188,12 @@ def check():
     except (KeyError, ValueError):
         return Response("Missing or invalid lat/lon parameters", status=400)
 
-    # Optional PRTG context fields
-    device = request.args.get("device", "(unknown)")
-    group  = request.args.get("group",  "(unknown)")
-    sensor = request.args.get("sensor", "(unknown)")
-    status = request.args.get("status", "Down")
-    down   = request.args.get("down",   "")
+    # Optional PRTG context fields — clamped to prevent oversized log/output entries
+    device = _trunc(request.args.get("device", "(unknown)"))
+    group  = _trunc(request.args.get("group",  "(unknown)"))
+    sensor = _trunc(request.args.get("sensor", "(unknown)"))
+    status = _trunc(request.args.get("status", "Down"), 50)
+    down   = _trunc(request.args.get("down",   ""), 50)
     fmt    = request.args.get("format", "text").lower()
 
     log.info("Check request: device=%r group=%r lat=%.5f lon=%.5f", device, group, lat, lon)

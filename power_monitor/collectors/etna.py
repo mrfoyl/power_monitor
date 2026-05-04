@@ -47,6 +47,13 @@ _AREA_OVERRIDES = {
 }
 
 
+def _safe_int(val, default: int = 0) -> int:
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def _get(path: str) -> dict:
     resp = requests.get(
         f"{_BASE}/{path}",
@@ -191,10 +198,10 @@ class EtnaCollector(BaseCollector):
             data = _get("content/outageTableData.json")
             summary = data.get("p", {}).get("summary", {})
             return {
-                "fault_count":     int(summary.get("faultrunning", {}).get("nr", 0)),
-                "fault_customers": int(summary.get("faultrunning", {}).get("customers", 0)),
-                "plan_count":      int(summary.get("planrunning", {}).get("nr", 0)),
-                "plan_customers":  int(summary.get("planrunning", {}).get("customers", 0)),
+                "fault_count":     _safe_int(summary.get("faultrunning", {}).get("nr")),
+                "fault_customers": _safe_int(summary.get("faultrunning", {}).get("customers")),
+                "plan_count":      _safe_int(summary.get("planrunning", {}).get("nr")),
+                "plan_customers":  _safe_int(summary.get("planrunning", {}).get("customers")),
             }
         except Exception as e:
             logger.warning("Etna outageTableData failed: %s", e)

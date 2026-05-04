@@ -148,6 +148,19 @@ log = _setup_logging()
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_MAX_PRTG_STR = 200   # clamp context fields (device, group, etc.) from PRTG
+_MAX_MSG = 500        # clamp free-text from external API (belt-and-suspenders
+                      # over the models.py __post_init__ clamp)
+
+
+def _trunc(s: str, n: int = _MAX_PRTG_STR) -> str:
+    return s[:n] if s else s
+
+
+# ---------------------------------------------------------------------------
 # GPS parsing
 # ---------------------------------------------------------------------------
 
@@ -224,10 +237,10 @@ def _check_local(
             log.warning("Provider %s failed: %s", collector.name, e)
 
     header = (
-        f"Device : {device}\n"
-        f"Group  : {group}\n"
-        f"Sensor : {sensor}\n"
-        f"Status : {status}  (down {down})\n"
+        f"Device : {_trunc(device)}\n"
+        f"Group  : {_trunc(group)}\n"
+        f"Sensor : {_trunc(sensor)}\n"
+        f"Status : {_trunc(status, 50)}  (down {_trunc(down, 50)})\n"
         f"Area   : {municipality}\n"
         f"{'-' * 60}\n"
     )
@@ -241,7 +254,7 @@ def _check_local(
     for o in outages:
         lines.append(f"  [{o.provider}] {o.outage_type} | {o.num_affected} customers affected")
         if o.customer_message:
-            lines.append(f"    {o.customer_message}")
+            lines.append(f"    {_trunc(o.customer_message, _MAX_MSG)}")
     return "\n".join(lines) + "\n"
 
 
