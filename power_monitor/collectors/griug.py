@@ -42,7 +42,7 @@ _GSN = "7080005052900"
 _API_BASE = "https://powerapi.prod.hub.quant.embriq.no/outage"
 _USER_AGENT = (
     "PowerMonitor/1.0 (Norwegian outage correlation tool; "
-    "https://github.com/mrfoyl/power_monitor)"
+    "https://github.com/IFKIKT/power_monitor)"
 )
 _TIMEOUT = 15
 

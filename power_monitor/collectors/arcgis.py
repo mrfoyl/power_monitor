@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 15
 USER_AGENT = (
     "PowerMonitor/1.0 (Norwegian outage correlation tool; conservative polling; "
-    "https://github.com/your-org/power_monitor)"
+    "https://github.com/IFKIKT/power_monitor)"
 )
 
 

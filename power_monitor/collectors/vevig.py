@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 _BASE = "https://avbruddskart.vevig.no/geoserver-api"
 _USER_AGENT = (
     "PowerMonitor/1.0 (Norwegian outage correlation tool; "
-    "https://github.com/your-org/power_monitor)"
+    "https://github.com/IFKIKT/power_monitor)"
 )
 _TIMEOUT = 15
 

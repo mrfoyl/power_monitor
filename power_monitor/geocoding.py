@@ -19,7 +19,7 @@ _BASE_URL = "https://ws.geonorge.no/adresser/v1/sok"
 _PUNKTSOK_URL = "https://ws.geonorge.no/adresser/v1/punktsok"
 _USER_AGENT = (
     "PowerMonitor/1.0 (Norwegian outage correlation tool; "
-    "https://github.com/your-org/power_monitor)"
+    "https://github.com/IFKIKT/power_monitor)"
 )
 _TIMEOUT = 10
 
