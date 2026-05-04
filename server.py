@@ -80,7 +80,8 @@ limiter = Limiter(
     get_remote_address,
     app=app,
     default_limits=[],        # no blanket limit; applied per-route
-    storage_uri="memory://",  # in-process store; switch to redis:// for multi-worker
+    storage_uri="memory://",  # in-process store; for gunicorn multi-worker deployments
+                              # switch to redis://: set RATELIMIT_STORAGE_URL=redis://host:6379
 )
 
 _MAX_PARAM = 200   # max length for PRTG context strings passed as query params
@@ -172,6 +173,18 @@ def _text_response(
 
 
 # ---------------------------------------------------------------------------
+# Security headers
+# ---------------------------------------------------------------------------
+
+@app.after_request
+def set_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -245,4 +258,4 @@ if __name__ == "__main__":
         log.info("API key authentication enabled")
     else:
         log.warning("No API key set — server is open to anyone on the network")
-    app.run(host=HOST, port=PORT)
+    app.run(host=HOST, port=PORT, debug=False)

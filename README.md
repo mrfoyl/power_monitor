@@ -236,6 +236,18 @@ Then set the matching key in `prtg_outage_check.py`:
 OUTAGE_API_KEY = "your-secret-key"
 ```
 
+**Rate limiter — multi-worker note:**
+The default rate limiter uses in-process memory, which means each gunicorn
+worker has its own counter. For multi-worker deployments set a shared Redis
+store so the limit is enforced across all workers:
+
+```
+pip install flask-limiter[redis]
+set RATELIMIT_STORAGE_URL=redis://localhost:6379   # Windows
+export RATELIMIT_STORAGE_URL=redis://localhost:6379  # Linux
+gunicorn -w 4 -b 0.0.0.0:5000 server:app
+```
+
 **Running as a service (Windows):**
 ```
 pip install pywin32
