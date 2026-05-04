@@ -208,18 +208,23 @@ that PRTG exposes as `%scriptresult` in notification templates.
 
 ### Deployment modes
 
-**Remote mode (recommended)**
-Run `server.py` on any central server. The PRTG script calls it over HTTP —
-the PRTG server only needs Python and `requests`, nothing else.
+**Remote mode — PowerShell (recommended, zero dependencies)**
+`prtg_outage_check.ps1` calls `server.py` over HTTP using only built-in
+Windows PowerShell 5.1. No Python, no `pip install` needed on the PRTG server.
 
 ```
-[PRTG server]  prtg_outage_check.py  -->  HTTP GET  -->  [API server]  server.py
-                  (tiny, no deps)                           (full power_monitor)
+[PRTG server]  prtg_outage_check.ps1  -->  HTTP GET  -->  [API server]  server.py
+               (PowerShell built-in)                        (full power_monitor)
 ```
 
-**Local mode**
-Run the check directly on the PRTG server. Requires Python 3.11+ and the
-full `power_monitor` package installed on the PRTG server.
+**Remote mode — Python**
+`prtg_outage_check.py` does the same as the PowerShell script but requires
+Python 3.x and `pip install requests` on the PRTG server.
+
+**Local mode — Python only**
+Run the check directly on the PRTG server without a separate API server.
+Requires Python 3.11+ and the full `power_monitor` package installed.
+Use `prtg_outage_check.py` with `OUTAGE_API_URL = ""`.
 
 ---
 
@@ -297,24 +302,32 @@ See the systemd example at the bottom of this section.
 
 ### Step 1 — Copy the script to PRTG
 
-**Remote mode:** copy only `prtg_outage_check.py` to the EXE directory.
-
-**Local mode:** copy `prtg_outage_check.py` **and** the entire `power_monitor/` folder.
-
 Target directory:
 
 ```
 C:\Program Files (x86)\PRTG Network Monitor\Notifications\EXE\
 ```
 
-**Remote mode** — the directory should look like:
+**Remote mode — PowerShell (recommended):**
+
+```
+Notifications\EXE\
+    prtg_outage_check.ps1
+```
+
+If the PRTG server's execution policy blocks unsigned scripts, run once as admin:
+```
+Unblock-File "C:\...\Notifications\EXE\prtg_outage_check.ps1"
+```
+
+**Remote mode — Python:**
 
 ```
 Notifications\EXE\
     prtg_outage_check.py
 ```
 
-**Local mode** — the directory should look like:
+**Local mode — Python:**
 
 ```
 Notifications\EXE\
@@ -350,6 +363,15 @@ For each site group in PRTG, add the GPS coordinates to its Location field:
    - **Name:** `Power Outage Check`
    - **Type:** Execute Program
 4. Under **Execute Program**:
+
+   **PowerShell script:**
+   - **Program File:** `prtg_outage_check.ps1`
+   - **Parameters** (copy exactly, including the quotes):
+     ```
+     -Device "%device" -Group "%group" -Sensor "%name" -Status "%status" -Location "%location" -Down "%down"
+     ```
+
+   **Python script:**
    - **Program File:** `prtg_outage_check.py`
    - **Parameters** (copy exactly, including the quotes):
      ```
