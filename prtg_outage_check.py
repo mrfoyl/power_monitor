@@ -63,6 +63,7 @@ Group -> Edit -> Settings -> Location field.
 """
 
 import argparse
+import html
 import logging
 import re
 import sys
@@ -236,12 +237,15 @@ def _check_local(
         except Exception as e:
             log.warning("Provider %s failed: %s", collector.name, e)
 
+    # Escape fields from external sources — PRTG embeds %scriptresult in HTML
+    # email/Teams templates, so unescaped HTML from a compromised API would render.
+    safe_municipality = html.escape(municipality)
     header = (
         f"Device : {_trunc(device)}\n"
         f"Group  : {_trunc(group)}\n"
         f"Sensor : {_trunc(sensor)}\n"
         f"Status : {_trunc(status, 50)}  (down {_trunc(down, 50)})\n"
-        f"Area   : {municipality}\n"
+        f"Area   : {safe_municipality}\n"
         f"{'-' * 60}\n"
     )
     if not outages:
@@ -254,7 +258,7 @@ def _check_local(
     for o in outages:
         lines.append(f"  [{o.provider}] {o.outage_type} | {o.num_affected} customers affected")
         if o.customer_message:
-            lines.append(f"    {_trunc(o.customer_message, _MAX_MSG)}")
+            lines.append(f"    {html.escape(_trunc(o.customer_message, _MAX_MSG))}")
     return "\n".join(lines) + "\n"
 
 

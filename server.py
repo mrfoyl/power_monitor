@@ -36,6 +36,7 @@ Running in production:
     gunicorn -w 2 -b 0.0.0.0:5000 server:app
 """
 
+import html
 import os
 import logging
 from datetime import datetime, timezone
@@ -144,12 +145,16 @@ def _text_response(
     status: str,
     down: str,
 ) -> str:
+    # Escape fields from external sources before embedding in notification text.
+    # PRTG inserts %scriptresult into HTML email/Teams templates — unescaped HTML
+    # from a compromised API would otherwise render as links or markup.
+    safe_municipality = html.escape(municipality)
     header = (
         f"Device : {device}\n"
         f"Group  : {group}\n"
         f"Sensor : {sensor}\n"
         f"Status : {status}  (down {down})\n"
-        f"Area   : {municipality}\n"
+        f"Area   : {safe_municipality}\n"
         f"{'-' * 60}\n"
     )
     if not outages:
@@ -162,7 +167,7 @@ def _text_response(
     for o in outages:
         lines.append(f"  [{o.provider}] {o.outage_type} | {o.num_affected} customers affected")
         if o.customer_message:
-            lines.append(f"    {o.customer_message}")
+            lines.append(f"    {html.escape(o.customer_message)}")
     return "\n".join(lines) + "\n"
 
 
