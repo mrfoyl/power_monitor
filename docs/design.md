@@ -6,16 +6,13 @@
 flowchart TD
     SENSOR[PRTG-sensor\ngår NED]
     TRIGGER["State Trigger\n(konfigurert på gruppe)"]
-    SCRIPT["prtg_outage_check.py\n--device %device\n--group %group\n--location %location\n--status %status\n--down %down"]
+    SCRIPT["prtg_outage_check.ps1\n-Device %device\n-Group %group\n-Location %location\n-Status %status\n-Down %down"]
 
     SENSOR -->|Status: Down| TRIGGER
     TRIGGER -->|Kjør EXE-notifikasjon| SCRIPT
 
     SCRIPT --> PARSE["Parse GPS fra Location-felt\n'61.5120, 9.1234'"]
-    PARSE --> MODE{OUTAGE_API_URL\nsatt?}
-
-    MODE -->|Ja — Remote| HTTP["HTTP GET /check\n?lat=61.512&lon=9.521\n&device=…&group=…"]
-    MODE -->|Nei — Local| LOCAL["Direkte funksjonskall\ni samme prosess"]
+    PARSE --> HTTP["HTTP GET /check\n?lat=61.512&lon=9.521\n&device=…&group=…"]
 
     HTTP -->|valgfri X-API-Key header| SERVER
 
@@ -26,12 +23,11 @@ flowchart TD
     end
 
     AUTH --> GEOCODE
-    LOCAL --> GEOCODE
 
     GEOCODE["lookup_gps(lat, lon)\nKartverket punktsøk-API"]
     GEOCODE --> MUNIC["Kommune-navn\neks. 'NORD-FRON'"]
 
-    MUNIC --> PROV["Spør alle providere\n(parallelt)"]
+    MUNIC --> PROV["Spør alle providere"]
 
     PROV --> E["Elvia"]
     PROV --> V["Vevig"]
@@ -53,8 +49,8 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph PRTG_SERVER["PRTG-server  (Windows)"]
-        SCRIPT2["prtg_outage_check.py\n(i Notifications\\EXE\\)"]
-        NOTE["Trenger kun:\n• Python 3.x\n• pip install requests"]
+        SCRIPT2["prtg_outage_check.ps1\n(i Notifications\\EXE\\)"]
+        NOTE["Ingen ekstra avhengigheter\nPowerShell 5.1 er innebygd"]
     end
 
     subgraph MONITOR_SERVER["Sentral server  (Linux/Windows)"]
@@ -76,8 +72,6 @@ flowchart LR
     PKG -->|"HTTPS"| ARCGIS_ONPREM
     PKG -->|"HTTPS"| QUANT
 ```
-
-> **Alternativ — Local mode:** Installer `power_monitor` direkte på PRTG-serveren og la `OUTAGE_API_URL` stå tom. Da trenger du ikke `server.py`.
 
 ---
 
@@ -140,17 +134,17 @@ python -m power_monitor providers
 ## 5. PRTG-konfigurasjon (oppsummering)
 
 ```
-1. Kopier prtg_outage_check.py til:
+1. Kopier prtg_outage_check.ps1 til:
    C:\Program Files (x86)\PRTG Network Monitor\Notifications\EXE\
 
-2. Sett OUTAGE_API_URL i toppen av filen (remote) eller la den stå tom (local).
+2. Sett $ApiUrl i toppen av filen.
 
 3. PRTG → Setup → Notifications → Add Notification
    Type: Execute Program
-   Program: prtg_outage_check.py
+   Program: prtg_outage_check.ps1
    Parameters:
-     --device "%device" --group "%group" --sensor "%name"
-     --status "%status" --location "%location" --down "%down"
+     -Device "%device" -Group "%group" -Sensor "%name"
+     -Status "%status" -Location "%location" -Down "%down"
 
 4. PRTG → Gruppe → Notifications → Add State Trigger
    When: Down  →  Execute: Power Outage Check

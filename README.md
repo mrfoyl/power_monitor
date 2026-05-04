@@ -114,7 +114,7 @@ power_monitor/
     geocoding.py        Kartverket address / postnr / GPS lookup
     models.py           PowerOutage dataclass
     cli.py              Click CLI commands
-prtg_outage_check.py    PRTG EXE notification script (see below)
+prtg_outage_check.ps1   PRTG EXE notification script (PowerShell, no dependencies)
 requirements.txt
 docs/
     design.md           System design with Mermaid diagrams
@@ -195,36 +195,24 @@ Additional per-collector protections:
 - **SQL injection** — there is no database. No SQL is used anywhere.
 - **Code execution from input** — `eval`, `exec`, `subprocess`, and
   `shell=True` are not used. JSON is parsed with `json.loads` / `resp.json()`,
-  not `eval`. Arguments are parsed with `argparse`.
+  not `eval`. The PowerShell script uses a `param()` block — no shell invocation.
 
 ---
 
 ## PRTG integration
 
-When a PRTG sensor goes Down, `prtg_outage_check.py` is triggered as an
+When a PRTG sensor goes Down, `prtg_outage_check.ps1` is triggered as an
 EXE/Script notification. It reverse-geocodes the PRTG group's GPS location
 to a municipality, queries the outage APIs, and outputs a plain-text result
 that PRTG exposes as `%scriptresult` in notification templates.
 
-### Deployment modes
-
-**Remote mode — PowerShell (recommended, zero dependencies)**
-`prtg_outage_check.ps1` calls `server.py` over HTTP using only built-in
-Windows PowerShell 5.1. No Python, no `pip install` needed on the PRTG server.
+The script uses only built-in Windows PowerShell 5.1 — no Python or additional
+packages required on the PRTG server.
 
 ```
 [PRTG server]  prtg_outage_check.ps1  -->  HTTP GET  -->  [API server]  server.py
                (PowerShell built-in)                        (full power_monitor)
 ```
-
-**Remote mode — Python**
-`prtg_outage_check.py` does the same as the PowerShell script but requires
-Python 3.x and `pip install requests` on the PRTG server.
-
-**Local mode — Python only**
-Run the check directly on the PRTG server without a separate API server.
-Requires Python 3.11+ and the full `power_monitor` package installed.
-Use `prtg_outage_check.py` with `OUTAGE_API_URL = ""`.
 
 ---
 
@@ -258,9 +246,9 @@ set POWER_MONITOR_API_KEY=your-secret-key
 python server.py
 ```
 
-Then set the matching key in `prtg_outage_check.py`:
-```python
-OUTAGE_API_KEY = "your-secret-key"
+Then set the matching key in `prtg_outage_check.ps1`:
+```powershell
+$ApiKey = "your-secret-key"
 ```
 
 **Rate limiter — multi-worker note:**
@@ -287,57 +275,22 @@ See the systemd example at the bottom of this section.
 
 ---
 
-### Prerequisites (PRTG server — remote mode)
+### Prerequisites (PRTG server)
 
-- Python 3.x (any version)
-- `pip install requests`
-
-### Prerequisites (PRTG server — local mode)
-
-- Python 3.11+
-- `pip install -r requirements.txt`
-- The full `power_monitor/` folder copied to the EXE directory
+None. Windows PowerShell 5.1 is pre-installed on all supported Windows versions.
 
 ---
 
 ### Step 1 — Copy the script to PRTG
 
-Target directory:
-
 ```
 C:\Program Files (x86)\PRTG Network Monitor\Notifications\EXE\
-```
-
-**Remote mode — PowerShell (recommended):**
-
-```
-Notifications\EXE\
     prtg_outage_check.ps1
 ```
 
 If the PRTG server's execution policy blocks unsigned scripts, run once as admin:
 ```
 Unblock-File "C:\...\Notifications\EXE\prtg_outage_check.ps1"
-```
-
-**Remote mode — Python:**
-
-```
-Notifications\EXE\
-    prtg_outage_check.py
-```
-
-**Local mode — Python:**
-
-```
-Notifications\EXE\
-    prtg_outage_check.py
-    power_monitor\
-        __init__.py
-        collectors\
-        geocoding.py
-        models.py
-        ...
 ```
 
 ### Step 2 — Set GPS coordinates on PRTG groups
@@ -363,19 +316,10 @@ For each site group in PRTG, add the GPS coordinates to its Location field:
    - **Name:** `Power Outage Check`
    - **Type:** Execute Program
 4. Under **Execute Program**:
-
-   **PowerShell script:**
    - **Program File:** `prtg_outage_check.ps1`
    - **Parameters** (copy exactly, including the quotes):
      ```
      -Device "%device" -Group "%group" -Sensor "%name" -Status "%status" -Location "%location" -Down "%down"
-     ```
-
-   **Python script:**
-   - **Program File:** `prtg_outage_check.py`
-   - **Parameters** (copy exactly, including the quotes):
-     ```
-     --device "%device" --group "%group" --sensor "%name" --status "%status" --location "%location" --down "%down"
      ```
 5. Click **Save**
 
